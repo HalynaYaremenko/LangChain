@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.tools import tool
 from langchain.agents import create_agent
 
@@ -9,7 +9,7 @@ from langchain.agents import create_agent
 load_dotenv()
 API_KEY = os.getenv("OPENAI_API_KEY")
 
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=API_KEY)
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7, api_key=API_KEY)
 
 # @tool
 # def calculator(expression: str) -> str:
@@ -45,7 +45,7 @@ def calculator(expression: str) -> str:
 
 @tool
 def weather_api (city: str) -> str:
-    """Повертає погоду для заданого міста. Назву міста задано англійчькою"""
+    """Повертає погоду для заданого міста. Назву міста задано англійcькою"""
     data = {
         "Kyiv": "Сонячно, 25°C",
         "Lviv": "Хмарно, 20°C",
@@ -58,13 +58,35 @@ def weather_api (city: str) -> str:
         f"Немає даних для введеного міста: {city}. Спробуйте: {", ".join(list(data.keys()))} "
     )
 
-tools=[calculator,  weather_api]
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+with open("data/faq.txt", "r", encoding="utf-8") as f:
+    faq_text = f.read()
+splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=20)
+# docs = splitter.split_text(faq_text)
+docs = splitter.create_documents([faq_text])
+embeddings = OpenAIEmbeddings()
+vector_store = FAISS.from_documents(docs, embeddings)
+@tool
+def search_faq(query: str) -> str:
+    """Питання/відповідь FAQ"""
+    try:
+        # result = vector_store.search(query)
+        result = vector_store.similarity_search(query, k=1)
+        if not result:
+            return "Нічого не знайдено у FAQ"
+        return result[0].page_content
+    except Exception as e:
+        return f"Error search: {e}"
+    
+tools = [calculator, weather_api, search_faq]
+
 
 agent = create_agent(
     model=llm,
     tools=tools,
     system_prompt="Ти особистий помічник. Ввідповідай ввічливо та по-дружньому. Для відповідей користуйся інструментами tools, якщо потрібно.",
-    debug=True # False, щоб отримати питання-відповідь, без кроків обробки
+    debug=False # False, щоб отримати питання-відповідь, без кроків обробки
 )
 
 # {
@@ -102,3 +124,26 @@ def get_output(result: dict) -> str:
                 return "".join(c.get("text", str(c)) if isinstance(c, dict) else str(c) for c in content)
 
     return ""   
+
+chat_messages = []
+def chat(user_input: str) -> str:
+    chat_messages.append({"role": "user", "content": user_input})
+    result = agent.invoke({"messages": chat_messages})
+    
+    chat_messages.clear()                     # chat_messages = []
+    chat_messages.extend(result["messages"]) # [] + [{"role": "user", "content": user_input}, {"role": "assistant", "content": ..., "tool_calls": ...}] = [{"role": "user", "content": user_input}, {"role": "assistant", "content": ..., "tool_calls": ...}]
+
+    return get_output(result)
+
+def run_interactive():
+    while True:
+        user = input("User: ")
+        if user.lower() in ["q", "x", "^Z"]:
+            print("Viel Spaß!")
+            break
+        print("Assistant", chat(user))
+
+
+if __name__ == "__main__":
+    # print(chat("Яка погода в Києві та скільки буде 2 + 2?"))
+    run_interactive()
