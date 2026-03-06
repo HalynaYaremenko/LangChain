@@ -63,15 +63,14 @@ from langchain_community.vectorstores import FAISS
 with open("data/faq.txt", "r", encoding="utf-8") as f:
     faq_text = f.read()
 splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=20)
-# docs = splitter.split_text(faq_text)
+
 docs = splitter.create_documents([faq_text])
 embeddings = OpenAIEmbeddings()
 vector_store = FAISS.from_documents(docs, embeddings)
 @tool
 def search_faq(query: str) -> str:
-    """Питання/відповідь FAQ"""
+    """Шукай відповідь у внутрішньому документі FAQ магазину. Питання задається українською мовою. """
     try:
-        # result = vector_store.search(query)
         result = vector_store.similarity_search(query, k=1)
         if not result:
             return "Нічого не знайдено у FAQ"
@@ -138,7 +137,7 @@ def chat(user_input: str) -> str:
 def run_interactive():
     while True:
         user = input("User: ")
-        if user.lower() in ["q", "x", "^Z"]:
+        if user.lower() in ["q", "x", "^Z", "й"]:
             print("Viel Spaß!")
             break
         print("Assistant", chat(user))
